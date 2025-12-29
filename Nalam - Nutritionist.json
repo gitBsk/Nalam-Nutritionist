@@ -1,0 +1,393 @@
+{
+  "name": "Nalam - Nutritionist",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Nalam - Nutritionist\nAgent that will suggest meals to be cooked on a daily basis\n\nBuilt with Love by Balaji Santhana Krishnan https://www.linkedin.com/in/balaskrishnan/\n\n",
+        "height": 144,
+        "width": 464
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        80,
+        -480
+      ],
+      "typeVersion": 1,
+      "id": "46c0f742-58af-425e-8bbf-dca26eba3d8c",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw =\n  $input.all()[0].json.output ??\n  $input.all()[0].json.text ??\n  \"\";\n\nconst text = String(raw)\n  .replace(/\\r\\n/g, \"\\n\")\n  .replace(/=+/g, \"\")        // remove ===== separators\n  .trim();\n\nfunction normalize(s) {\n  return s.replace(/\\s+/g, \" \").trim();\n}\n\n// Extract a section by flexible heading match\nfunction extractSection(labelRegex, stopRegexes = []) {\n  const startMatch = text.match(labelRegex);\n  if (!startMatch) return \"\";\n\n  const startIdx = startMatch.index + startMatch[0].length;\n  const rest = text.slice(startIdx);\n\n  let endIdx = rest.length;\n  for (const re of stopRegexes) {\n    const m = rest.match(re);\n    if (m && m.index < endIdx) endIdx = m.index;\n  }\n\n  return rest.slice(0, endIdx).trim();\n}\n\n// Parse calories / macros / veggies / reason\nfunction parseNutrition(block) {\n  const out = {\n    calories: null,\n    carbs: null,\n    protein: null,\n    fiber: null,\n    veggies: null,\n    reason: null,\n  };\n\n  block.split(\"\\n\").forEach(line => {\n    const l = normalize(line);\n\n    if (/calories/i.test(l)) out.calories = l.replace(/.*?:/,\"\").trim();\n    else if (/carbs?/i.test(l)) out.carbs = l.replace(/.*?:/,\"\").trim();\n    else if (/protein/i.test(l)) out.protein = l.replace(/.*?:/,\"\").trim();\n    else if (/fiber/i.test(l)) out.fiber = l.replace(/.*?:/,\"\").trim();\n    else if (/vegg/i.test(l)) out.veggies = l.replace(/.*?:/,\"\").trim();\n    else if (/reason/i.test(l)) out.reason = l.replace(/.*?:/,\"\").trim();\n  });\n\n  return out;\n}\n\n// Parse one regional block\nfunction parseRegion(block) {\n  if (!block) return null;\n\n  const lines = block.split(\"\\n\").map(normalize).filter(Boolean);\n\n  // Dish name = first non-heading, non-nutrition line\n  const dishLine = lines.find(l =>\n    !/calories|nutrition|breakup|reason/i.test(l)\n  );\n\n  const nutrition = parseNutrition(block);\n\n  return {\n    dishName: dishLine || null,\n    nutrition\n  };\n}\n\n// Extract sections (grammar tolerant)\nconst northBlock = extractSection(\n  /north\\s+indian\\s+dish(es)?\\s*:/i,\n  [/south\\s+indian\\s+dish(es)?\\s*:/i]\n);\n\nconst southBlock = extractSection(\n  /south\\s+indian\\s+dish(es)?\\s*:/i\n);\n\nconst result = {\n  northIndian: parseRegion(northBlock),\n  southIndian: parseRegion(southBlock)\n};\n\n// n8n requires array return\nreturn [\n  {\n    json: result\n  }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        640,
+        -272
+      ],
+      "id": "ed7e1d02-8cea-4ff0-8eca-c45886275763",
+      "name": "Convert the Results as JSON"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "c7622f96-8ccf-4a22-b302-77d55f64b576",
+              "name": "North Indian Dish Name",
+              "value": "={{ $json.northIndian.dishName }}",
+              "type": "string"
+            },
+            {
+              "id": "c874a877-4849-4c55-b34d-2126e4b02b77",
+              "name": "South Indian Dish Name",
+              "value": "={{ $json.southIndian.dishName }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        832,
+        -272
+      ],
+      "id": "667427b3-d9f8-4246-b580-c2489dc0c440",
+      "name": "Filter Items to Search in Youtube"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are an expert youtube video analyser, Use the youtube HTTP tool to search for videos in youtube for the following dishes\n{{ $json['North Indian Dish Name'] }}\n{{ $json['South Indian Dish Name'] }}\n\n VIDEO SELECTION RULES\n-----------------------------------\n please follow the conditions below to pick a channel\nIf none of the above channels have a suitable video, you may choose another channel meets ALL of the following:\n- Prefer videos uploaded > 30 days ago \n- Prefer videos with high view count\n- Do not invent or guess video URLs.\n- Only return a YouTube link if you can confirm it opens and plays (public, not deleted/private, not region-blocked).\n- I expect a youtube link always, so please return it without fail!\n\nOUTPUT RULES\n-----------------------------------\nThe output should be in this format only\n\nNorth Indian Option\n\nDish - {{ $('Convert the Results as JSON').item.json.northIndian.dishName }}\n\nCalories - {{ $('Convert the Results as JSON').item.json.northIndian.nutrition.calories }}\n\nProtein - {{ $('Convert the Results as JSON').item.json.northIndian.nutrition.protein }}\n\nand \nYoutube Link for North Indian Dish\n\nSouth Indian Option\nDish - {{ $('Convert the Results as JSON').item.json.southIndian.dishName }}\nCalories - {{ $('Convert the Results as JSON').item.json.southIndian.nutrition.calories }}\n\nProtein - {{ $('Convert the Results as JSON').item.json.southIndian.nutrition.protein }}\n\nand \nYoutube Link for South Indian Dish\n---------------------------------------\nNo other text should be there in the output apart from above rules\n\n\n\n",
+        "hasOutputParser": true,
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "position": [
+        1072,
+        -272
+      ],
+      "id": "d1dc3efc-4dd0-4994-b8be-799accf0d63f",
+      "name": "YoutubeSearch Agent"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are a Nutrition Expert and Meal Planner for a South Indian Vegetarian family.\n\nYour task is to suggest DAILY FOOD ITEMS that:\n- Suggest only 2 options - one south indian and one north indian\n- include calorie count, carbs, protein, fiber etc breakup\n- Are nutritionally balanced (carbs, protein, fiber, vegetables)\n- Can be cooked easily by a home cook\n- Use commonly available Indian ingredients\n- Avoid overly complex or restaurant-style recipes\n- Check the last 7 memory messages and do not repeat any dish seen there.\n\nFocus on PRACTICAL, HOME-STYLE MEALS.\n\n-----------------------------------\n🍽️ MEAL STRUCTURE\n-----------------------------------\n\nOptionally include:\n- One simple side dish or accompaniment (chutney, poriyal, salad)\n- One protein source (dal, legumes, paneer, curd, etc.)\n\n-----------------------------------\n📋 OUTPUT FORMAT (STRICT)\n-----------------------------------\nExport the output in a tabular format to given as input to the next node\n===========================================\nnorth indian dish: \ncalories and nutrition breakup : \n\n\nsouth indian dish: \ncalories and nutrition breakup : \n\n-----------------------------------\n🧠 ADDITIONAL GUIDELINES\n-----------------------------------\n- Keep reasons short and practical (1–2 lines max)\n- Prefer repeatable, batch-friendly meals\n- Avoid fancy plating or chef-style techniques\n- Assume the cook follows visuals more than audio\n- Ensure meals are suitable for a South Indian vegetarian household\n\n",
+        "hasOutputParser": true,
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "position": [
+        288,
+        -272
+      ],
+      "id": "fdf09b6f-f40e-4774-a832-dfc6792aa8dc",
+      "name": "Nutrition Expert"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 12
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        80,
+        -272
+      ],
+      "id": "bd7e71d7-d916-42f1-8898-e5869863ffde",
+      "name": "Schedule Daily",
+      "retryOnFail": true
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4.1-mini"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        240,
+        -64
+      ],
+      "id": "1359c6a5-3ec4-43ee-bbfb-8abfebcb0afe",
+      "name": "GPT 4 Mini",
+      "credentials": {
+        "openAiApi": {
+          "id": "UWxF4ntMnnlf1aXS",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "nalam-bsk"
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        400,
+        -16
+      ],
+      "id": "521ff7ac-dda1-4448-b082-cf3e02c619be",
+      "name": "Last 7 Suggestions DB"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4.1-mini"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        1040,
+        -64
+      ],
+      "id": "406bd66c-2cbb-49f7-a9b4-ff3eac262a87",
+      "name": "GPT 4 Mini1",
+      "credentials": {
+        "openAiApi": {
+          "id": "UWxF4ntMnnlf1aXS",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://www.googleapis.com/youtube/v3/search",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "key",
+              "value": "AIzaSyDQdTzXwhT2o59n070iBx2lSKQVi5LE9r4"
+            },
+            {
+              "name": "q",
+              "value": "={{ $('Filter Items to Search in Youtube').item.json[\"North Indian Dish Name\"] }}"
+            },
+            {
+              "name": "maxResults",
+              "value": "5"
+            },
+            {
+              "name": "type",
+              "value": "video"
+            },
+            {
+              "name": "part",
+              "value": "snippet"
+            },
+            {
+              "name": "regionCode",
+              "value": "IN"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.3,
+      "position": [
+        1232,
+        -64
+      ],
+      "id": "a276edc5-2d9d-4d70-aa38-091d16fb11b9",
+      "name": "Search YouTube APIs"
+    },
+    {
+      "parameters": {
+        "chatId": "@oorgai",
+        "text": "={{ $json.output }}",
+        "additionalFields": {
+          "parse_mode": "HTML"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1424,
+        -272
+      ],
+      "id": "d6e938d7-ee63-4bef-8a62-6ae108629454",
+      "name": "Send Suggestion to Telegram Channel",
+      "webhookId": "d728eae0-1aa7-4d13-b78c-e9a5d5bf4efa",
+      "credentials": {
+        "telegramApi": {
+          "id": "sBZkobn9kAgSqoya",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "description": "=Use the tool to think about dishes and bring variety to suggest. The north indian dish suggested seems to be Vegetable Kichdi all the time, bring in some more varitey other than that. s"
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolThink",
+      "typeVersion": 1.1,
+      "position": [
+        560,
+        -32
+      ],
+      "id": "9a612ccd-e60e-491e-a3c4-5d6be9ef8e71",
+      "name": "Think"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Convert the Results as JSON": {
+      "main": [
+        [
+          {
+            "node": "Filter Items to Search in Youtube",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Items to Search in Youtube": {
+      "main": [
+        [
+          {
+            "node": "YoutubeSearch Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "YoutubeSearch Agent": {
+      "main": [
+        [
+          {
+            "node": "Send Suggestion to Telegram Channel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nutrition Expert": {
+      "main": [
+        [
+          {
+            "node": "Convert the Results as JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Daily": {
+      "main": [
+        [
+          {
+            "node": "Nutrition Expert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GPT 4 Mini": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Nutrition Expert",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Last 7 Suggestions DB": {
+      "ai_memory": [
+        [
+          {
+            "node": "Nutrition Expert",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GPT 4 Mini1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "YoutubeSearch Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search YouTube APIs": {
+      "ai_tool": [
+        [
+          {
+            "node": "YoutubeSearch Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Think": {
+      "ai_tool": [
+        [
+          {
+            "node": "Nutrition Expert",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "timeSavedMode": "fixed",
+    "timezone": "Asia/Kolkata",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "versionId": "9cfe8d6b-eede-4037-b2cf-3acbbef8d32d",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "d7c2d23629cf1d17f483153756f506fd8215bcd1556341b213391829f0bfad4e"
+  },
+  "id": "RxRKrVw6PPELqDOg",
+  "tags": [
+    {
+      "updatedAt": "2025-11-20T13:03:55.690Z",
+      "createdAt": "2025-11-20T13:03:55.690Z",
+      "id": "KHP6Yvz96Ftzzu9G",
+      "name": "Bala"
+    }
+  ]
+}
